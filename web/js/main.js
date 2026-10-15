@@ -332,24 +332,35 @@ function showResult(r) {
   drawProfile($('plot-y'), r.y);
 }
 
+/** The largest rectangle with aspect `cols : rows` (square pixels) centred in a `w x h` canvas. */
+function fitRect(cols, rows, w, h) {
+  const k = Math.min(w / cols, h / rows);
+  const dw = cols * k, dh = rows * k;
+  return { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
+}
+
 const offscreen = document.createElement('canvas');
-function blit(canvas, pic) {
+/** Draws the picture with square pixels, letterboxed when its shape differs from the canvas'. */
+function blit(canvas, pic, cols = pic.width, rows = pic.height) {
   offscreen.width = pic.width;
   offscreen.height = pic.height;
   offscreen.getContext('2d').putImageData(new ImageData(pic.rgba, pic.width, pic.height), 0, 0);
   const { ctx, w, h } = fitCanvas(canvas);
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, w, h);
-  // The window has the canvas' aspect ratio, so it fills the canvas with square pixels.
-  ctx.drawImage(offscreen, 0, 0, w, h);
+  // The auto-zoom window normally has the canvas' shape already; the full frame (4:3) and a window clipped
+  // at the sensor edge may not, and are letterboxed rather than stretched.
+  const rc = fitRect(cols, rows, w, h);
+  ctx.drawImage(offscreen, rc.x, rc.y, rc.w, rc.h);
+  return rc;
 }
 
 function drawImages(zoom, full, r) {
   $('placeholder').hidden = true;
-  blit($('zoom'), zoom);
-  blit($('full'), full);
   const [row0, col0, rows, cols] = r.window;
   const [iw, ih] = r.size;
+  const zr = blit($('zoom'), zoom, cols, rows);
+  const fr = blit($('full'), full, iw, ih);
 
   // Zoom overlay: the fitted 1/e² ellipse (2 sigma radii) and its centre.
   const ov = fitCanvas($('overlay'));
@@ -357,8 +368,8 @@ function drawImages(zoom, full, r) {
   const ell = r.detected && $('d-ellipse').checked && r.x.center != null && r.y.center != null;
   const dpr = ov.dpr;
   if (ell) {
-    const sx = ov.w / cols, sy = ov.h / rows;
-    const cx = (r.x.center + 0.5 - col0) * sx, cy = (r.y.center + 0.5 - row0) * sy;
+    const sx = zr.w / cols, sy = zr.h / rows;
+    const cx = zr.x + (r.x.center + 0.5 - col0) * sx, cy = zr.y + (r.y.center + 0.5 - row0) * sy;
     ov.ctx.strokeStyle = r.saturated ? '#ff4040' : '#3ee07a';
     ov.ctx.lineWidth = 1.5 * dpr;
     ov.ctx.beginPath();
@@ -378,7 +389,7 @@ function drawImages(zoom, full, r) {
   if (rows < ih || cols < iw) {
     fo.ctx.strokeStyle = '#f0a030';
     fo.ctx.lineWidth = 1.5 * fo.dpr;
-    fo.ctx.strokeRect((col0 / iw) * fo.w, (row0 / ih) * fo.h, (cols / iw) * fo.w, (rows / ih) * fo.h);
+    fo.ctx.strokeRect(fr.x + (col0 / iw) * fr.w, fr.y + (row0 / ih) * fr.h, (cols / iw) * fr.w, (rows / ih) * fr.h);
   }
 }
 
