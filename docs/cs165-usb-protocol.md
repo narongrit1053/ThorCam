@@ -1,7 +1,7 @@
 # Zelux CS165 USB protocol
 
-How the Thorlabs SDK talks to a Zelux CS165MU/CU, recovered so that a browser (WebUSB) can drive the camera
-without any Thorlabs DLL.
+How the Thorlabs SDK talks to a Zelux CS165MU/CU over USB, recovered from the shipped DLLs, so the camera can be
+driven without any Thorlabs DLL (libusb, WinUSB, WebUSB, or the `CYUSB3` driver directly).
 
 **Sources.** *Observed*: `tlcam/examples/usbtrace.rs` runs the real SDK (2.1.0.0, 2022-04-27) and logs every
 transfer it hands to the Cypress `CYUSB3` driver (traces of 2026-10-15, CS165CU serial 28764, firmware
@@ -25,7 +25,46 @@ transfer it hands to the Cypress `CYUSB3` driver (traces of 2026-10-15, CS165CU 
 
 The SDK calls `0x02`/`0x82` `UART_TX_ENDPOINT`/`UART_RX_ENDPOINT` and `0x83` `DATA_ENDPOINT`; it also names an
 `EVENT_ENDPOINT` that it never used in the traces. No control (EP0) transfers are used apart from reading the device
-descriptor. All three endpoints are bulk, so WebUSB can drive them once the device uses the WinUSB driver.
+descriptor. All three endpoints are bulk, so any generic USB stack can drive them (no isochronous transfers).
+
+Verified on 2026-10-15: with the camera bound to Microsoft's WinUSB driver instead of `CYUSB3` (via Zadig), a
+client written only from this document opened it, read its info and streamed live frames. To give the camera back
+to ThorCam, roll back or uninstall that driver in Device Manager and replug.
+
+## Drivers and platforms
+
+| Driver on the camera | Who can open it |
+|---|---|
+| `CYUSB3` (Thorlabs default, Windows) | Native programs only: the SDK, or any program using the `DeviceIoControl` calls below |
+| WinUSB (after a driver swap, Windows) | libusb, WinUSB, and Chromium's WebUSB; no longer ThorCam or the SDK |
+| none (Linux, macOS) | libusb / WebUSB directly; Linux needs a udev rule for user access, e.g. `SUBSYSTEM=="usb", ATTR{idVendor}=="1313", ATTR{idProduct}=="4002", MODE="0666"` |
+
+A web page cannot reach a device on `CYUSB3` in any browser. Windows would pick WinUSB by itself only if the camera
+firmware reported Microsoft OS descriptors, which this firmware does not. The SDK's own Linux path uses libusb and
+mentions `usbfs_memory_mb` in an error message (*inferred*: same protocol over libusb). Not tested on Linux or macOS.
+
+## SDK internals (where the protocol lives in the DLLs)
+
+| DLL | Role |
+|---|---|
+| `thorlabs_tsi_camera_sdk.dll` | Public `tl_camera_*` API. Turns each call into a text command (`exp 5000`, `gain 240`, …), passes it to the device module as `set_data("command")` / `get_data("response")`, and checks the reply against its error table. Also holds the `cypress_fx3_class` transport used by the CS (Kiralux/Quantalux) path. |
+| `thorlabs_tsi_zelux_camera_device.dll` | Zelux device module (internal name `thorlabs_tsi_libusb.dll`). Exports a libusb-compatible API (`libusb_bulk_transfer`, `libusb_submit_transfer`, hotplug, …) implemented on Windows with `SetupDi*` + `CreateFile` + `DeviceIoControl` on the `CYUSB3` device, I/O completion ports for transfers. Names the endpoints `UART_TX_ENDPOINT`, `UART_RX_ENDPOINT`, `DATA_ENDPOINT`, `EVENT_ENDPOINT`. |
+| `thorlabs_tsi_usb_hotplug_monitor.dll` | Device arrival/removal events. |
+| colour / demosaic / polarization / LUT DLLs | Optional image processing; not involved in the camera protocol. |
+
+`CYUSB3` transfers (CyAPI), as the SDK issues them:
+
+- `IOCTL_ADAPT_SEND_EP0_CONTROL_TRANSFER` = `0x220020` (only for the device descriptor) and
+  `IOCTL_ADAPT_SEND_NON_EP0_TRANSFER` = `0x220024` (all bulk traffic), overlapped, with the same buffer as input and
+  output.
+- The buffer starts with a packed 38-byte `SINGLE_TRANSFER` header: setup packet (`bmRequest u8, bRequest u8,
+  wValue u16, wIndex u16, wLength u16, ulTimeOut u32`) at 0, reserved u8 at 12, `ucEndpointAddress` u8 at 13,
+  `NtStatus` u32 at 14, `UsbdStatus` u32 at 18, `IsoPacketOffset` u32 at 22, `IsoPacketLength` u32 at 26,
+  `BufferOffset` u32 at 30, `BufferLength` u32 at 34; the data follows at `BufferOffset` (38).
+- Device path: `\\?\usb#vid_1313&pid_4002#<serial>#{ae18aa60-7f6a-11d4-97dd-00010229b959}`.
+
+So a native program can drive the camera on the default Thorlabs driver with these two IOCTLs and the command
+protocol below, without loading any Thorlabs DLL (*inferred*: not yet written and tested).
 
 ## Commands
 
@@ -109,14 +148,19 @@ bits 2*k*…2*k*+1). The stream is `num_calibration_lines` (6) lines of calibrat
 row-major, `width` = 1440 pixels per line; the rest of the last packet is padding.
 
 Verified: for five 200 ms frames this decoding equals the SDK's `tl_camera_get_pending_frame_or_null` output
-bit for bit (1440×1080, values 0…1022). The SDK applies no further processing on this camera.
+bit for bit (1440×1080, values 0…1022). The SDK applies no further processing on this camera. A decoder written
+from this description also reproduced all five frames exactly when the captured packets were replayed through it.
+
+A client should read with several large transfers in flight (e.g. 8 × 128 KiB): every packet is exactly 16384 bytes,
+so packets stay aligned inside larger reads; place each packet by its header (frame number, index) rather than by
+arrival order, and drop frames that never complete.
 
 Throughput: 121 × 16 KiB ≈ 1.98 MB per frame, so 35 fps ≈ 69 MB/s.
 
 ## Unknowns
 
-- The configuration descriptor and interface number were not traced (the SDK does not read it); WebUSB reads it
-  directly. *Inferred*: interface 0.
+- The configuration descriptor was not traced (the SDK does not read it). The WinUSB client found the three
+  endpoints in configuration 1; the interface number was not recorded (*inferred*: 0).
 - Binning, ROI writes, hardware triggering, `frametime`/`sfr` frame-rate control and `vflip`/`hflip` were not
   exercised; their `<name>.disc` descriptions give the syntax.
 - CS165MU responses are inferred from the CU and the SDK strings.

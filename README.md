@@ -69,21 +69,17 @@ It opens the SDK, lists cameras, prints the camera info and grabs 10 frames.
   Right-click a profile plot: export that profile (or both) to CSV, copy it tab-separated for Excel, copy the
   results, save the plot as PNG, reset the view. Right-click the results bar: copy or export the results.
 
-## Browser version (GitHub Pages, no DLL)
+## Camera USB protocol (reverse engineered)
 
-`web/` is a static site that does the same job without any Thorlabs software: it drives a Zelux CS165MU/CU directly
-over **WebUSB** (Chrome or Edge), and the analysis is the `beam` crate compiled to WebAssembly. The camera protocol
-was recovered from the SDK with `tlcam/examples/usbtrace.rs` and is written up in `docs/cs165-usb-protocol.md`.
+How the SDK talks to a Zelux CS165 over USB, without the DLL in between, is written up in
+[`docs/cs165-usb-protocol.md`](docs/cs165-usb-protocol.md): plain-text commands and replies on two bulk endpoints,
+and frames as 16 KiB packets of MIPI RAW10 on a third. It was recovered with `tlcam/examples/usbtrace.rs`, which runs
+the real SDK and logs every transfer it hands to the Cypress `CYUSB3` driver:
 
-* **Camera driver**: on Windows the camera must use the WinUSB driver instead of Thorlabs' `CYUSB3` (Zadig;
-  `web/help.html` has the steps and how to switch back). With WinUSB, ThorCam and the SDK cannot use that camera.
-* **Build and run locally**: `.\web\build.ps1 -Serve`, then open http://localhost:8000. `?sim=mono` or
-  `?sim=color` starts the simulator.
-* **Publish**: push to GitHub with Pages set to "GitHub Actions"; `.github/workflows/pages.yml` tests, builds and
-  deploys `web/`.
-* **Checks**: `node web/test/replay.mjs <trace>` replays a `usbtrace` capture through the web driver and the
-  WebAssembly decoder and compares every frame with the SDK's; `node web/test/smoke.mjs <msedge.exe> <url> <png>`
-  runs the page in headless Edge.
+    cargo run --release -p tlcam --example usbtrace -- "<folder with thorlabs_tsi_camera_sdk.dll>" trace.log
+
+It writes `trace.log` (every command, response and image packet header), `trace.raw` (the raw image packets) and
+`trace.frameN.u16` (the SDK's decoded frames, to check a decoder against).
 
 ## Layout
 
@@ -92,8 +88,6 @@ was recovered from the SDK with `tlcam/examples/usbtrace.rs` and is written up i
 | `tlcam` | Loads the DLL (the way Thorlabs' `load_dll_helpers` do), safe `Sdk` and `Camera` types | `Camera_Open/Start/ApplySettings/GetFrame/Close.vi`, `Set_DLL_Folder.vi` |
 | `beam` | Gaussian fit, beam analysis, auto-zoom, synthetic frames; no camera or GUI code | `Profile_Fit`, `Beam_Analyze`, `Beam_FindRegion`, `Zoom_Window`, `Display_Image.vi` |
 | `thorcam` | The window (egui) and the three loops; a simulated CS165MU | `Main.vi` |
-| `beam-wasm` | The processing loop for the browser: RAW10 frame decoding, `beam` analysis, auto-zoom, rendering, simulator; C ABI for WebAssembly | (browser version) |
-| `web/` | The browser version: WebUSB camera driver, worker, UI | (browser version) |
 
 Three threads, as in the blueprint:
 

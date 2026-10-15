@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["beam", "beam-wasm", "tlcam", "thorcam"]
+members = ["beam", "tlcam", "thorcam"]
 
 [workspace.package]
 version = "0.1.0"

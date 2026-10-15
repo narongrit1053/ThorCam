@@ -1,8 +1,6 @@
 target/
 dist/
 *.csv
-# Built by web/build.ps1 or the Pages workflow
-web/wasm/
 # usbtrace captures
 *.raw
 *.u16
