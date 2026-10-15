@@ -3,6 +3,7 @@ name = "thorcam"
 description = "ThorCam beam profiler: Thorlabs camera, Gaussian beam width, auto-zoom display."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 beam = { path = "../beam" }

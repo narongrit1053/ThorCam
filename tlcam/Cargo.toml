@@ -3,6 +3,7 @@ name = "tlcam"
 description = "Safe Rust wrapper for the Thorlabs TSI native camera SDK (thorlabs_tsi_camera_sdk.dll)."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 

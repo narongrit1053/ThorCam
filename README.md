@@ -162,3 +162,11 @@ real hardware has not been made yet.
 
 Rust 1.99, `x86_64-pc-windows-gnu` toolchain (no Visual Studio needed), 64-bit build. For a 32-bit build, add the
 `i686-pc-windows-gnu` target and use the `Native_32_lib` DLLs in `Library_X86`.
+
+## License
+
+The source code in this repository is released under the [MIT License](LICENSE).
+
+The Thorlabs camera SDK DLLs are not part of this repository and are not covered by that license. They belong to
+Thorlabs and are distributed under Thorlabs' own terms. The single-file program embeds them; the build reads them from
+the SDK folder on your machine.

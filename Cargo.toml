@@ -5,6 +5,7 @@ members = ["beam", "tlcam", "thorcam"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [profile.dev.package."*"]
 # Dependencies (egui, the renderer) are slow unoptimised; our own code stays debuggable.
