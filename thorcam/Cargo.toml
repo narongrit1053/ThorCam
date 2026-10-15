@@ -1,0 +1,15 @@
+[package]
+name = "thorcam"
+description = "ThorCam beam profiler: Thorlabs camera, Gaussian beam width, auto-zoom display."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+beam = { path = "../beam" }
+eframe = "0.36.2"
+egui_plot = "0.37.0"
+tlcam = { path = "../tlcam" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tiff = "0.11"
+rfd = { version = "0.17", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

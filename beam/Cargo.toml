@@ -1,0 +1,7 @@
+[package]
+name = "beam"
+description = "Beam-profile analysis: Gaussian fit, beam width, auto-zoom. No camera or GUI code."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

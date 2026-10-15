@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["beam", "beam-wasm", "tlcam", "thorcam"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev.package."*"]
+# Dependencies (egui, the renderer) are slow unoptimised; our own code stays debuggable.
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+[profile.test]
+# The auto-zoom tests render hundreds of 1440 x 1080 frames.
+opt-level = 2

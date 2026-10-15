@@ -1,0 +1,12 @@
+[package]
+name = "beam-wasm"
+description = "The beam profiler's processing (frame decoding, analysis, auto-zoom, rendering, simulator) for the browser."
+version.workspace = true
+edition.workspace = true
+
+[lib]
+# cdylib: the WebAssembly module; rlib: so `cargo test` can run the tests natively.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+beam = { path = "../beam" }

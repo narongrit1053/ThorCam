@@ -1,0 +1,53 @@
+# Builds the browser version (web/ + the beam analysis compiled to WebAssembly) and publishes it on GitHub Pages.
+# Repository settings → Pages → Source: "GitHub Actions".
+# Only web/ is published: no Thorlabs DLL, SDK file or desktop build is part of the site.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain with the WebAssembly target
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+          rustup default stable
+      - name: Test the analysis
+        # tlcam and thorcam need Windows and the Thorlabs SDK; the web build uses only beam and beam-wasm.
+        run: cargo test -p beam -p beam-wasm --release
+      - name: Build the WebAssembly module
+        run: cargo build -p beam-wasm --target wasm32-unknown-unknown --release
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/wasm
+          cp -r web/index.html web/help.html web/style.css web/js _site/
+          cp target/wasm32-unknown-unknown/release/beam_wasm.wasm _site/wasm/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

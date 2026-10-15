@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beam Profiler</title>
+  <meta name="description" content="Laser beam profiler for Thorlabs Zelux CS165 cameras, running entirely in the browser over WebUSB.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23111'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f6a400'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="dot" aria-hidden="true"></span>
+      <h1>Beam Profiler</h1>
+      <span class="sub">Zelux CS165 · WebUSB</span>
+    </div>
+    <div class="actions">
+      <span id="status" class="pill" data-state="idle">No camera</span>
+      <button id="btn-connect" class="primary">Connect camera</button>
+      <div class="split">
+        <button id="btn-sim-mono">Simulator</button>
+        <button id="btn-sim-color" title="Simulated colour camera (CS165CU)">Colour</button>
+      </div>
+      <button id="btn-stop" disabled>Disconnect</button>
+      <a class="help" href="help.html">Setup help</a>
+    </div>
+  </header>
+
+  <div id="unsupported" class="banner" hidden>
+    This browser has no WebUSB, so it cannot talk to the camera. Use Chrome or Edge on a desktop computer.
+    The simulator works in any browser.
+  </div>
+  <div id="message" class="banner" hidden></div>
+
+  <main class="layout">
+    <section class="view">
+      <div class="image-wrap">
+        <canvas id="zoom" aria-label="Beam image (auto-zoomed)"></canvas>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+        <div id="placeholder" class="placeholder">
+          <p><strong>Connect a camera</strong> or start the <strong>simulator</strong>.</p>
+          <p class="muted">The first connection asks which USB device to use. After that the camera is found
+            automatically when it is plugged in.</p>
+        </div>
+      </div>
+      <div class="under-image">
+        <span id="zoom-text" class="mono muted"></span>
+        <span id="frame-text" class="mono muted"></span>
+      </div>
+      <div class="plots">
+        <figure>
+          <figcaption>X profile <span class="muted">(column sums in ROI)</span></figcaption>
+          <canvas id="plot-x"></canvas>
+        </figure>
+        <figure>
+          <figcaption>Y profile <span class="muted">(row sums in ROI)</span></figcaption>
+          <canvas id="plot-y"></canvas>
+        </figure>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="card results">
+        <div class="big">
+          <div><span class="label">D<sub>x</sub> 1/e²</span><span id="r-dx" class="value">–</span><span class="unit">µm</span></div>
+          <div><span class="label">D<sub>y</sub> 1/e²</span><span id="r-dy" class="value">–</span><span class="unit">µm</span></div>
+        </div>
+        <p id="r-state" class="state">Waiting for frames</p>
+        <table class="kv">
+          <tr><th>Centre (col, row)</th><td id="r-center">–</td></tr>
+          <tr><th>FWHM x / y</th><td id="r-fwhm">–</td></tr>
+          <tr><th>2nd-moment D x / y</th><td id="r-d2">–</td></tr>
+          <tr><th>Peak / background</th><td id="r-peak">–</td></tr>
+          <tr><th>S/N x / y</th><td id="r-snr">–</td></tr>
+          <tr><th>R² x / y</th><td id="r-r2">–</td></tr>
+          <tr><th>Frame rate</th><td id="r-fps">–</td></tr>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Camera</h2>
+        <div class="grid">
+          <label>Exposure (ms)<input id="c-exposure" type="number" min="0.04" step="0.1" value="5"></label>
+          <label>Gain (dB)<input id="c-gain" type="number" min="0" max="48" step="0.1" value="0"></label>
+          <label>Black level<input id="c-black" type="number" min="0" step="1" value=""></label>
+          <label class="check"><input id="c-led" type="checkbox"> Status LED</label>
+        </div>
+        <p id="applied" class="muted small"></p>
+        <table class="kv small" id="info"></table>
+      </section>
+
+      <section class="card">
+        <h2>Analysis</h2>
+        <div class="grid">
+          <label>ROI half-size (px, 0 = all)<input id="a-roi" type="number" min="0" step="10" value="150"></label>
+          <label>Min contrast (counts)<input id="a-contrast" type="number" min="0" step="5" value="30"></label>
+          <label>Min S/N<input id="a-snr" type="number" min="0" step="1" value="8"></label>
+          <label id="a-channel-wrap" hidden>Colour channel
+            <select id="a-channel">
+              <option value="0">Sum (R+G+G+B)</option>
+              <option value="1">Red</option>
+              <option value="2">Green (G+G)</option>
+              <option value="3">Blue</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button id="b-dark">Record dark (10 frames)</button>
+          <button id="b-dark-clear">Clear dark</button>
+        </div>
+        <p id="dark-status" class="muted small">No dark frame</p>
+      </section>
+
+      <section class="card">
+        <h2>Display</h2>
+        <div class="grid">
+          <label>Zoom
+            <select id="d-mode">
+              <option value="0">Auto</option>
+              <option value="1">Full frame</option>
+              <option value="2">Lock</option>
+            </select>
+          </label>
+          <label>Palette
+            <select id="d-palette">
+              <option value="0">Gray</option>
+              <option value="1">Thermal</option>
+            </select>
+          </label>
+          <label>Detection level (%)<input id="d-threshold" type="number" min="1" max="90" step="0.5" value="13.5"></label>
+          <label>Max zoom<input id="d-maxzoom" type="number" min="1" max="64" step="1" value="16"></label>
+          <label class="check" id="d-color-wrap" hidden><input id="d-color" type="checkbox" checked> Colour picture</label>
+          <label class="check"><input id="d-ellipse" type="checkbox" checked> 1/e² outline</label>
+        </div>
+        <figure class="overview">
+          <figcaption>Whole frame</figcaption>
+          <div class="ov-wrap"><canvas id="full"></canvas><canvas id="full-overlay"></canvas></div>
+        </figure>
+      </section>
+
+      <section class="card">
+        <h2>Save</h2>
+        <div class="row wrap">
+          <button id="b-pause">Pause</button>
+          <button id="b-png">Image (PNG)</button>
+          <button id="b-tiff">Raw frame (16-bit TIFF)</button>
+          <button id="b-csv">Results + profiles (CSV)</button>
+          <button id="b-log">Start log</button>
+        </div>
+        <p id="save-status" class="muted small"></p>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="foot muted small">
+    Runs entirely in this browser: the camera is driven over WebUSB and every calculation runs here, in
+    WebAssembly. No data leaves this computer. <a href="help.html">How to set up the camera driver</a>.
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
